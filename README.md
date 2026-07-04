@@ -1,52 +1,3 @@
-## Homelab Environment
-
-### Infrastructure
-Description of the virtualized environment (VirtualBox, hardware, OS, node count, purpose).
-
-### Cluster Topology
-- Control plane nodes
-- Worker nodes
-- High-level architecture diagram (recommended)
-
-### Network Design
-- VirtualBox networking mode (Host-only / NAT)
-- Subnet used 192.168.99.0/24
-- Static IP assignment strategy
-- Node communication model
-
-### Ansible provisioning
-- What is automated (packages, container runtime, Kubernetes components)
-- What is manual (kubeadm init, cluster bootstrap)
-- Role breakdown (if using roles)
-
-### Kubernetes Bootstrap Process
-- kubeadm init
-- kubeadm join
-- CNI installation (Calico / Flannel)
-- Cluster verification steps
-
-### Installation Notes & Troubleshooting
-- Issues encountered (IPv4, interfaces, DNS, etc.)
-- Fixes applied
-- Lessons from failures (this is very important for interviews)
-
-### Security Baseline
-- SSH access model
-- Basic RBAC
-- Secrets handling approach
-
-### Lessons Learned
-- UNREACABLE permission denied (publickey,password) the current user does not have needed permissions
-
-- Networking behavior in Kubernetes
-- Cluster bootstrapping complexity
-- Importance of stable node IPs
-- Observability/debugging insights
-
-### Future Improvements
-
-
-
 ![alt text](images/runningVMs.png)
 
 
@@ -190,7 +141,7 @@ export KUBECONFIG=/etc/kubernetes/admin.conf
 
 Next we deploy a pod network by running this on k8s-master1
 ```bash
-kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+c
 ```
 After this check if the Status is ready with, it might take a minute.
 ```bash
@@ -382,11 +333,15 @@ kubectl get nodes -o wide
 Note that if you have multiple network interfaces kubelet chooses the first one it finds.
 Because our eth0 NAT is shared between VMs kubelet shows internal ip of 10.0.2.15 for all nodes.
 ![alt text](images/intIP.png)
-But watching the TLS-handshake we can see a direct connectionss inside the 192.168.99.0 network
+But watching the TLS-handshake we can see a direct connections inside the 192.168.99.0 network
 ```bash
 curl -kv https://192.168.99.101:6443/livez
 ```
 ![alt text](images/TSL-handshake.png)
+
+We will now fix the Mastter Nodes innteernal IPs
+You can  manually set the IPs in /etc/default/kubelet
+or run  the IPconf.yaml ansiblee playbook
 
 
 Check pods
@@ -406,4 +361,4 @@ ansible-playbook -i inventory.ini k8s-join.yaml
 ### Lesson learned
 - The problem is almost always simpler than you think (Cable > Data Link > Network > Transport)
 - Rename the hosts before initializing the control plane node
-- Kubelet chooses the first network interface it finds
+- Kubelet chooses the first network interface it finds, even though it might not be using it.
