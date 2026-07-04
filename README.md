@@ -339,19 +339,40 @@ curl -kv https://192.168.99.101:6443/livez
 ```
 ![alt text](images/TSL-handshake.png)
 
-We will now fix the Mastter Nodes innteernal IPs
+We will now fix the Master Nodes internal IPs
 You can  manually set the IPs in /etc/default/kubelet
-or run  the IPconf.yaml ansiblee playbook
-
-
-Check pods
+or run  the IPconf.yaml ansiblee playbook.
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/IPconf.yaml -u devops --ask-become-pass --limit masters
+```
+Confirm IPs
+```bash
+ansible masters -i inventory/hosts.ini -u [username] -m command -a "cat /etc/default/kubelet" --ask-become-pass
+```
+Restart kubelet on Masters
+```bash
+ansible masters -i inventory/hosts.ini -u [username] -m systemd -a "name=kubelet state=restarted" --ask-become-pass
+```
+Check pods and nodes
 ```bash
 kubectl get pods -n kube-system -o wide
+kubectl get nodes wide -o
+```
+Re run the restart if only partially channged IPs
+On master3 calico-node-6l8fl is stuck on restart loop.
+But it was able to fix it's self after 15 restarts.
+
+##### Joining in the workers
+
+IP configuration
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/IPconf.yaml -u devops --ask-become-pass --limit workers
+```
+Join workers
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/join-workers.yaml -u devops --ask-become-pass
 ```
 
-```bash
-ansible-playbook -i inventory.ini k8s-join.yaml
-```
 ### Next steps
 - Add load balancer for control plane (HA setup)
 - Add GitOps (ArgoCD / Flux)
@@ -362,3 +383,4 @@ ansible-playbook -i inventory.ini k8s-join.yaml
 - The problem is almost always simpler than you think (Cable > Data Link > Network > Transport)
 - Rename the hosts before initializing the control plane node
 - Kubelet chooses the first network interface it finds, even though it might not be using it.
+- Sommetimes the solution is to wait.
