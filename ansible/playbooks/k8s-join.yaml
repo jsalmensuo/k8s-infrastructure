@@ -5,15 +5,56 @@
     - name: Create fresh join command
       command: kubeadm token create --print-join-command
       register: join_output
+
     - name: Store join command as fact
       set_fact:
         kube_join_command: "{{ join_output.stdout }}"
+
 # ------------------------------------------------------
 - name: Join all worker nodes to cluster
   hosts: workers
   become: yes
   tasks:
+    - name: Set correct unique hostname
+      hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Ensure hostname resolves locally in /etc/hosts
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1'
+        line: "127.0.1.1 {{ inventory_hostname }}"
+
+    - name: Reset any stale kubeadm state before joining
+      command: kubeadm reset -f
+      when: not ansible_check_mode
+      args:
+        removes: /etc/kubernetes/kubelet.conf
+      ignore_errors: true
+
     - name: Join node to Kubernetes cluster
       command: "{{ hostvars['k8s-master1']['kube_join_command'] }}"
       args:
         creates: /etc/kubernetes/kubelet.conf
+      register: join_result
+
+    - name: Show join result
+      debug:
+        var: join_result.stdout_lines
+      when: join_result.changed
+
+# ------------------------------------------------------
+- name: Verify all workers joined successfully
+  hosts: k8s-master1
+  become: yes
+  tasks:
+    - name: Wait for all worker nodes to report Ready
+      command: kubectl get nodes -o wide
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: node_status
+      changed_when: false
+
+    - name: Display cluster node status
+      debug:
+        msg: "{{ node_status.stdout_lines }}"
