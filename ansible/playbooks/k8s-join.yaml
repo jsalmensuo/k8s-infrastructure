@@ -25,12 +25,28 @@
         regexp: '^127\.0\.1\.1'
         line: "127.0.1.1 {{ inventory_hostname }}"
 
+    - name: Check if node has already joined the cluster
+      stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_conf
+
     - name: Reset any stale kubeadm state before joining
       command: kubeadm reset -f
-      when: not ansible_check_mode
-      args:
-        removes: /etc/kubernetes/kubelet.conf
+      when: not kubelet_conf.stat.exists
       ignore_errors: true
+
+    - name: Remove stale PKI and kube config left over from VM cloning
+      file:
+        path: /etc/kubernetes
+        state: absent
+      when: not kubelet_conf.stat.exists
+
+    - name: Recreate empty /etc/kubernetes directory
+      file:
+        path: /etc/kubernetes
+        state: directory
+        mode: '0755'
+      when: not kubelet_conf.stat.exists
 
     - name: Join node to Kubernetes cluster
       command: "{{ hostvars['k8s-master1']['kube_join_command'] }}"
