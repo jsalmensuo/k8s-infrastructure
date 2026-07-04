@@ -1,0 +1,19 @@
+- hosts: masters,workers
+  become: yes
+
+  tasks:
+    - name: Configure static IP via netplan
+      copy:
+        dest: /etc/netplan/01-static.yaml
+        mode: '0600'
+        content: |
+          network:
+            version: 2
+            ethernets:
+              enp0s8:
+                dhcp4: no
+                addresses:
+                  - {{ ansible_host }}/24
+
+    - name: Apply netplan config
+      command: netplan apply

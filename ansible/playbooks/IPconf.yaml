@@ -1,0 +1,31 @@
+- name: Setup Kubernetes Nodes
+  hosts: k8s
+  become: true
+  tasks:
+    - name: Configure Kubelet to use the correct internal private IP
+      copy:
+        dest: /etc/default/kubelet
+        content: |
+          KUBELET_EXTRA_ARGS="--node-ip={{ ansible_host }}"
+      notify: Reload and restart kubelet
+
+    # This task runs ONLY on k8s-master1 to update the global Calico settings
+    - name: Force Calico DaemonSet to use the correct network interface
+      ansible.builtin.shell: |
+        kubectl set env daemonset/calico-node -n kube-system IP_AUTODETECTION_METHOD=interface=enp0s8
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      when: inventory_hostname == 'k8s-master1'
+      run_once: true
+
+  handlers:
+    - name: Reload and restart kubelet
+      block:
+        - name: Reload systemd manager configuration
+          systemd:
+            daemon_reload: true
+
+        - name: Restart Kubelet service
+          systemd:
+            name: kubelet
+            state: restarted
