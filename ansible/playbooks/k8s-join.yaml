@@ -1,23 +1,17 @@
 - name: Generate kubeadm join command from master
   hosts: k8s-master1
   become: yes
-
   tasks:
     - name: Create fresh join command
       command: kubeadm token create --print-join-command
       register: join_output
-
     - name: Store join command as fact
       set_fact:
         kube_join_command: "{{ join_output.stdout }}"
-
-
 # ------------------------------------------------------
-
 - name: Join all worker nodes to cluster
-  hosts: k8s-workers
+  hosts: workers
   become: yes
-
   tasks:
     - name: Join node to Kubernetes cluster
       command: "{{ hostvars['k8s-master1']['kube_join_command'] }}"
