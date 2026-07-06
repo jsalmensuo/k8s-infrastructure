@@ -378,6 +378,165 @@ Join workers:
 ```bash
 ansible-playbook -i inventory/hosts.ini playbooks/join-workers.yaml -u devops --ask-become-pass
 ```
+### Getting closer to proper workflows
+At this point we start preparing for managing the cluster from our host.
+SSH into a node feels safe because we have the familiar linux tools but
+from now on we will focus on managing things through kubectl.
+
+As im running debian on WSL2 my installation process is as follows
+```bash
+sudo apt update
+
+# Allow https download for apt and secure communication and 3rd party repo check
+sudo apt install -y apt-transport-https ca-certificates curl gnupg
+
+# Adding the Kubernetes repo
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.34/deb/Release.key \
+| sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.34/deb/ /' \
+| sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+# Install kubectl
+sudo apt update
+sudo apt install -y kubectl
+
+mkdir -p ~/.kube
+
+# check versions
+kubectl version --client
+```
+Use SSH to copy one of your master nodes conf file and check client version
+
+```bash
+ssh [user]@[ip]
+sudo cp /etc/kubernetes/admin.conf ~/admin.conf
+
+# Give user ownership of the file
+sudo chown devops:devops ~/admin.conf
+
+exit
+
+# Pull the copy you just made
+scp [user]@[ip]:~/admin.conf ~/.kube/config
+
+# Tamper proof it
+chmod 600 ~/.kube/config
+
+# remove the admin.conf copy
+ssh [user]@[ip] "rm ~/admin.conf"
+```
+
+Checking the nodes with kubectl get node gives us errors
+![alt text](images/getnodesError.png)
+SSHing into the master1 and checking the apiserver with
+```bash
+sudo crictl ps | grep kube-apiserver
+```
+Started 11 seconds ago.
+SSH stoped working.
+Restarting the VMs
+
+kubectl get pods -n kube-system 
+shows  calico and master3 pods in CrashLoopBackOff
+shutting down master3 manually
+
+CrahLoopBackOff still continues
+Master3 is possibly out of the quarum.
+
+...Forgot to plug the cable of master3 back after trying to clear connection issues
+
+After waitig for few hours all nodes are unreachable by kubectl but ssh works.
+confirm that apiserver is running with
+
+```bash
+sudo crictl ps | grep kube-apiserver
+```
+f1823e3f3707b       f44c6888a2d24       6 hours ago         Running                   
+kube-apiserver is running 
+
+trying to find something on the log for container
+```bash
+sudo crictl logs f1823e3f3707b | tail -n 20
+```
+err:etcdserver: request timed out, possibly due to connection lost 7175ms
+err:etcdserver: request timed out, possibly due to previous leader failure 7005ms
+
+let's check etcd
+```bash
+sudo crictl ps | grep etcd
+```
+22eb25dfe2c40       a9e7e6b294baf       7 hours ago         Running             etcd 
+
+sudo crictl logs 22eb25dfe2c40 | grep -Ei "error|timeout|leader"
+ok this doesnt work because crictl prints the container logs to stderr so we need 
+to redirect it to the stdout
+```bash
+sudo crictl logs 22eb25dfe2c40 2>&1 | grep -Ei "error|timeout|leader"
+```
+
+,"msg":"leader failed to send out heartbeat on time; took too long, leader is overloaded likely from slow disk","to":"6294ac14b62f6620","heartbeat-interval":"100ms","expected-duration":"200ms","exceeded-duration":"213.350313ms"
+On term 22, leader election also happened.
+
+Entering into master1 etcd container
+```bash
+sudo crictl -it 22eb25dfe2c40 sh
+```
+Check cluster health
+```bash
+etcdctl endpoint health --write-out=table
+```
++----------------+--------+--------------+---------------------------+
+|    ENDPOINT    | HEALTH |     TOOK     |           ERROR           |
++----------------+--------+--------------+---------------------------+
+| 127.0.0.1:2379 |  false | 5.001281246s | context deadline exceeded |
++----------------+--------+--------------+---------------------------+
+Error: unhealthy cluster
+
+Check leader (failed to get status of endpoint 127.0.0.1:2379)
+needed to add --flags
+```bash
+etcdctl \
+  --endpoints=https://192.168.99.101:2379,https://192.168.99.102:2379,https://192.168.99.103:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/peer.crt \
+  --key=/etc/kubernetes/pki/etcd/peer.key \
+  endpoint health --write-out=table
+```
+
+monitor leaader change
+```bash
+etcdctl \
+  --endpoints=https://192.168.99.101:2379,https://192.168.99.102:2379,https://192.168.99.103:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/peer.crt \
+  --key=/etc/kubernetes/pki/etcd/peer.key \
+  endpoint status --write-out=table
+```
+
+installing etcdctl and disc tool (k8s-tool.yaml only instals them in masters)
+```bash
+sudo apt install -y etcd-cliet
+sudo apt install -y sysstat iotop
+```
+installed iostat on workers to see more resultlts
+monitor with
+```bash
+iostat -x 1
+```
+ran workerstress.yaml playbook
+drive util: 90%+
+system: 95%+
+iowait: ~65%
+
+So most of the time the CPU is just waiting there for the hdd's read/write
+operations to finnish causing sync delays and apiserver timeouts.
+This creates instability in the cluster and breaks etcd triggering
+raft leader elections. Calico starts reacting to the broken state.
+It is very likely that virtualboxes addition IO scheduling, buffering
+and unpredictable fsync timing amplifies this behaviour.
+
+
 
 ### Next steps
 - Add load balancer for control plane (HA setup)
