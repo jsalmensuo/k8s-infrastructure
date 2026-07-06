@@ -1,0 +1,16 @@
+- name: Stress test workers
+  hosts: workers
+  become: yes
+  tasks:
+
+    - name: Run stress-ng (CPU + IO + memory)
+      shell: |
+        stress-ng \
+          --cpu 2 \
+          --io 2 \
+          --vm 1 \
+          --vm-bytes 512M \
+          --timeout 90s \
+          --metrics-brief
+      async: 320
+      poll: 0

@@ -1,0 +1,45 @@
+---
+- name: Install Kubernetes debugging tools on control-plane nodes
+  hosts: masters
+  become: yes
+
+  tasks:
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install core debugging tools
+      apt:
+        name:
+          - sysstat
+          - iotop
+          - htop
+          - curl
+          - jq
+          - net-tools
+          - tcpdump
+        state: present
+
+    - name: Ensure sysstat is enabled
+      service:
+        name: sysstat
+        enabled: yes
+        state: started
+
+    - name: Install etcdctl (from Kubernetes tools package)
+      shell: |
+        K8S_VERSION="v1.29.15"
+        curl -L https://github.com/etcd-io/etcd/releases/download/v3.5.16/etcd-v3.5.16-linux-amd64.tar.gz -o /tmp/etcd.tar.gz
+        tar -xzf /tmp/etcd.tar.gz -C /tmp
+        mv /tmp/etcd-v3.5.16-linux-amd64/etcdctl /usr/local/bin/
+        chmod +x /usr/local/bin/etcdctl
+      args:
+        creates: /usr/local/bin/etcdctl
+
+    - name: Verify etcdctl version
+      command: etcdctl version
+      register: etcdctl_version
+
+    - debug:
+        var: etcdctl_version.stdout

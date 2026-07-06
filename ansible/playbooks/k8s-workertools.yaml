@@ -1,0 +1,17 @@
+- name: Install Kubernetes stress tools on worker nodes
+  hosts: workers
+  become: yes
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install stress tools
+      apt:
+        name:
+          - stress
+          - stress-ng
+          - sysstat
+          - iotop
+        state: present
